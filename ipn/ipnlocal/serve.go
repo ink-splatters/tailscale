@@ -812,6 +812,24 @@ func (b *LocalBackend) getServeHandler(r *http.Request) (_ ipn.HTTPHandlerView, 
 // we serve requests for. `backend` is a HTTPHandler.Proxy string (url, hostport or just port).
 func (b *LocalBackend) proxyHandlerForBackend(backend string) (http.Handler, error) {
 	targetURL, insecure := expandProxyArg(backend)
+
+	// Handle unix: scheme specially
+	if strings.HasPrefix(targetURL, "unix:") {
+		socketPath := strings.TrimPrefix(targetURL, "unix:")
+		if socketPath == "" {
+			return nil, fmt.Errorf("empty unix socket path")
+		}
+		u, _ := url.Parse("http://localhost")
+		return &reverseProxy{
+			logf:       b.logf,
+			url:        u,
+			insecure:   false,
+			backend:    backend,
+			lb:         b,
+			socketPath: socketPath,
+		}, nil
+	}
+
 	u, err := url.Parse(targetURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid url %s: %w", targetURL, err)
@@ -840,6 +858,7 @@ type reverseProxy struct {
 	insecure      bool
 	backend       string
 	lb            *LocalBackend
+	socketPath    string                          // path to unix socket, empty for TCP
 	httpTransport lazy.SyncValue[*http.Transport] // transport for non-h2c backends
 	h2cTransport  lazy.SyncValue[*http.Transport] // transport for h2c backends
 	// closed tracks whether proxy is closed/currently closing.
@@ -880,7 +899,12 @@ func (rp *reverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			r.Out.URL.RawPath = rp.url.RawPath
 		}
 
-		r.Out.Host = r.In.Host
+		// For Unix sockets, use the URL's host (localhost) instead of the incoming host
+		if rp.socketPath != "" {
+			r.Out.Host = rp.url.Host
+		} else {
+			r.Out.Host = r.In.Host
+		}
 		addProxyForwardedHeaders(r)
 		rp.lb.addTailscaleIdentityHeaders(r)
 		if err := rp.lb.addAppCapabilitiesHeader(r); err != nil {
@@ -905,8 +929,18 @@ func (rp *reverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // to the backend. The Transport gets created lazily, at most once.
 func (rp *reverseProxy) getTransport() *http.Transport {
 	return rp.httpTransport.Get(func() *http.Transport {
+		var dialContext func(ctx context.Context, network, addr string) (net.Conn, error)
+		if rp.socketPath != "" {
+			dialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
+				var d net.Dialer
+				return d.DialContext(ctx, "unix", rp.socketPath)
+			}
+		} else {
+			dialContext = rp.lb.dialer.SystemDial
+		}
+
 		return &http.Transport{
-			DialContext: rp.lb.dialer.SystemDial,
+			DialContext: dialContext,
 			TLSClientConfig: &tls.Config{
 				InsecureSkipVerify: rp.insecure,
 			},
@@ -929,6 +963,10 @@ func (rp *reverseProxy) getH2CTransport() http.RoundTripper {
 		tr := &http.Transport{
 			Protocols: &p,
 			DialTLSContext: func(ctx context.Context, network string, addr string) (net.Conn, error) {
+				if rp.socketPath != "" {
+					var d net.Dialer
+					return d.DialContext(ctx, "unix", rp.socketPath)
+				}
 				return rp.lb.dialer.SystemDial(ctx, "tcp", rp.url.Host)
 			},
 		}
@@ -940,6 +978,10 @@ func (rp *reverseProxy) getH2CTransport() http.RoundTripper {
 // for a h2c server, but sufficient for our particular use case.
 func (rp *reverseProxy) shouldProxyViaH2C(r *http.Request) bool {
 	contentType := r.Header.Get(contentTypeHeader)
+	// For unix sockets, check if it's gRPC content to determine h2c
+	if rp.socketPath != "" {
+		return r.ProtoMajor == 2 && isGRPCContentType(contentType)
+	}
 	return r.ProtoMajor == 2 && strings.HasPrefix(rp.backend, "http://") && isGRPCContentType(contentType)
 }
 
@@ -1183,6 +1225,10 @@ func (w *fixLocationHeaderResponseWriter) Write(p []byte) (int, error) {
 func expandProxyArg(s string) (targetURL string, insecureSkipVerify bool) {
 	if s == "" {
 		return "", false
+	}
+	// Unix sockets - return as-is
+	if strings.HasPrefix(s, "unix:") {
+		return s, false
 	}
 	if strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://") {
 		return s, false
