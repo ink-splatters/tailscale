@@ -39,7 +39,7 @@
       flake = false;
     };
     tailscale-go = {
-      url = "github:ink-splatters/tailscale-go/go1.25.5+20251126";
+      url = "github:ink-splatters/tailscale-go/go1.26rc1+20260104";
       inputs = {
         nixpkgs.follows = "nixpkgs";
         systems.follows = "systems";
@@ -67,9 +67,9 @@
       nixpkgs.lib.genAttrs (import systems) (system:
         f rec {
             pkgs = import nixpkgs { inherit system; };
-            inherit (tailscale-go.packages.${system}) go_1_25;
-            buildGo125Module = pkgs.buildGo125Module.override {
-              go = go_1_25;
+            inherit (tailscale-go.packages.${system}) go_1_26;
+            buildGo126Module = pkgs.buildGo126Module.override {
+              go = go_1_26;
           };
         });
     tailscaleRev = self.rev or "";
@@ -93,7 +93,7 @@
     # you're an end user you should be prepared for this flake to not
     # build periodically.
     packages = eachSystem ({pkgs, ...}@args: rec {
-      default = args.buildGo125Module {
+      default = args.buildGo126Module {
         name = "tailscale";
         pname = "tailscale";
         src = ./.;
@@ -152,7 +152,7 @@
           qemu
           e2fsprogs
         ] 
-        ++ [ args.go_1_25 ];
+        ++ [ args.go_1_26 ];
       };
     });
   };
