@@ -16,6 +16,27 @@
         "type": "github"
       }
     },
+    "flake-parts": {
+      "inputs": {
+        "nixpkgs-lib": [
+          "tailscale-go",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1765835352,
+        "narHash": "sha256-XswHlK/Qtjasvhd1nOa1e8MgZ8GS//jBoTqWtrS1Giw=",
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "rev": "a34fae9c08a15ad73f295041fec82323541400a9",
+        "type": "github"
+      },
+      "original": {
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1767364772,
@@ -36,7 +57,8 @@
       "inputs": {
         "flake-compat": "flake-compat",
         "nixpkgs": "nixpkgs",
-        "systems": "systems"
+        "systems": "systems",
+        "tailscale-go": "tailscale-go"
       }
     },
     "systems": {
@@ -51,6 +73,31 @@
       "original": {
         "owner": "nix-systems",
         "repo": "default",
+        "type": "github"
+      }
+    },
+    "tailscale-go": {
+      "inputs": {
+        "flake-parts": "flake-parts",
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "systems": [
+          "systems"
+        ]
+      },
+      "locked": {
+        "lastModified": 1767500013,
+        "narHash": "sha256-HTLmLZnUc1p7oJpojwunZnoR/eHLKORIFZNtR79gXQI=",
+        "owner": "ink-splatters",
+        "repo": "tailscale-go",
+        "rev": "dd702445ff8caac022a2ef39a04482cda8af80d0",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ink-splatters",
+        "ref": "go1.25.5+20251126",
+        "repo": "tailscale-go",
         "type": "github"
       }
     }
