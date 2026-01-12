@@ -24,11 +24,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1765835352,
-        "narHash": "sha256-XswHlK/Qtjasvhd1nOa1e8MgZ8GS//jBoTqWtrS1Giw=",
+        "lastModified": 1768135262,
+        "narHash": "sha256-PVvu7OqHBGWN16zSi6tEmPwwHQ4rLPU9Plvs8/1TUBY=",
         "owner": "hercules-ci",
         "repo": "flake-parts",
-        "rev": "a34fae9c08a15ad73f295041fec82323541400a9",
+        "rev": "80daad04eddbbf5a4d883996a73f3f542fa437ac",
         "type": "github"
       },
       "original": {
@@ -87,16 +87,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1767516373,
-        "narHash": "sha256-HXKfNzVDb98tG8Rlq1Lou9kTjjsdKVafo5CFvGugSGY=",
+        "lastModified": 1768218263,
+        "narHash": "sha256-xDXlN6tCkQ9LangPXSqBr2LrF7sjOS1NGnx+zEXq7JE=",
         "owner": "ink-splatters",
         "repo": "tailscale-go",
-        "rev": "2d4ea0d180b2584043a3332d22206dc62f3da8a2",
+        "rev": "6581372940c9ac89debd94e39ae33ed1dee93740",
         "type": "github"
       },
       "original": {
         "owner": "ink-splatters",
-        "ref": "go1.26rc1+20260104",
+        "ref": "go1.26rc1+20260112",
         "repo": "tailscale-go",
         "type": "github"
       }
