@@ -39,17 +39,17 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1768178648,
-        "narHash": "sha256-kz/F6mhESPvU1diB7tOM3nLcBfQe7GU7GQCymRlTi/s=",
+        "lastModified": 1769105483,
+        "narHash": "sha256-cC4W6KDq3942hk4zyoDWYOvb/9lvlsPZbrdlTj9hsxw=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "3fbab70c6e69c87ea2b6e48aa6629da2aa6a23b0",
+        "rev": "70801e06d9730c4f1704fbd3bbf5b8e11c03a2a7",
         "type": "github"
       },
       "original": {
         "owner": "NixOS",
-        "ref": "nixpkgs-unstable",
         "repo": "nixpkgs",
+        "rev": "70801e06d9730c4f1704fbd3bbf5b8e11c03a2a7",
         "type": "github"
       }
     },
@@ -87,16 +87,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1768218263,
-        "narHash": "sha256-xDXlN6tCkQ9LangPXSqBr2LrF7sjOS1NGnx+zEXq7JE=",
+        "lastModified": 1769711740,
+        "narHash": "sha256-BJtAxoYrgK9aU3LCSNQnmPB4Vi6ZITJF98UthKVPVE0=",
         "owner": "ink-splatters",
         "repo": "tailscale-go",
-        "rev": "6581372940c9ac89debd94e39ae33ed1dee93740",
+        "rev": "47984ccf098b0fb18ed541a6461d9a5477e223ec",
         "type": "github"
       },
       "original": {
         "owner": "ink-splatters",
-        "ref": "go1.26rc1+20260112",
+        "ref": "go1.26rc2+20260129",
         "repo": "tailscale-go",
         "type": "github"
       }

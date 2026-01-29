@@ -31,7 +31,7 @@
 # how to fix this mismatch.
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/70801e06d9730c4f1704fbd3bbf5b8e11c03a2a7";
     systems.url = "github:nix-systems/default";
     # Used by shell.nix as a compat shim.
     flake-compat = {
@@ -39,7 +39,7 @@
       flake = false;
     };
     tailscale-go = {
-      url = "github:ink-splatters/tailscale-go/go1.26rc1+20260112";
+      url = "github:ink-splatters/tailscale-go/go1.26rc2+20260129";
       inputs = {
         nixpkgs.follows = "nixpkgs";
         systems.follows = "systems";
