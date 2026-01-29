@@ -31,13 +31,29 @@
 # how to fix this mismatch.
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/70801e06d9730c4f1704fbd3bbf5b8e11c03a2a7";
     systems.url = "github:nix-systems/default";
     # Used by shell.nix as a compat shim.
     flake-compat = {
       url = "github:edolstra/flake-compat";
       flake = false;
     };
+    tailscale-go = {
+      url = "github:ink-splatters/tailscale-go/go1.26rc2+20260129";
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+        systems.follows = "systems";
+      };
+    };
+  };
+
+  nixConfig = {
+    extra-substituters = [
+      "https://aarch64-darwin.cachix.org"
+    ];
+    extra-trusted-public-keys = [
+      "aarch64-darwin.cachix.org-1:mEz8A1jcJveehs/ZbZUEjXZ65Aukk9bg2kmb0zL9XDA="
+    ];
   };
 
   outputs = {
@@ -45,29 +61,19 @@
     nixpkgs,
     systems,
     flake-compat,
+    tailscale-go
   }: let
-    goVersion = nixpkgs.lib.fileContents ./go.toolchain.version;
-    toolChainRev = nixpkgs.lib.fileContents ./go.toolchain.rev;
-    gitHash = nixpkgs.lib.fileContents ./go.toolchain.rev.sri;
     eachSystem = f:
       nixpkgs.lib.genAttrs (import systems) (system:
-        f (import nixpkgs {
-          system = system;
-          overlays = [
-            (final: prev: {
-              go_1_25 = prev.go_1_25.overrideAttrs {
-                version = goVersion;
-                src = prev.fetchFromGitHub {
-                  owner = "tailscale";
-                  repo = "go";
-                  rev = toolChainRev;
-                  sha256 = gitHash;
-                };
-              };
-            })
-          ];
-        }));
+        f rec {
+            pkgs = import nixpkgs { inherit system; };
+            inherit (tailscale-go.packages.${system}) go_1_26-native;
+            buildGo126Module = pkgs.buildGo126Module.override {
+              go = go_1_26-native;
+          };
+        });
     tailscaleRev = self.rev or "";
+
   in {
     # tailscale takes a nixpkgs package set, and builds Tailscale from
     # the same commit as this flake. IOW, it provides "tailscale built
@@ -86,8 +92,8 @@
     # So really, this flake is for tailscale devs to dogfood with, if
     # you're an end user you should be prepared for this flake to not
     # build periodically.
-    packages = eachSystem (pkgs: rec {
-      default = pkgs.buildGo125Module {
+    packages = eachSystem ({pkgs, ...}@args: rec {
+      default = args.buildGo126Module {
         name = "tailscale";
         pname = "tailscale";
         src = ./.;
@@ -131,7 +137,7 @@
       tailscale = default;
     });
 
-    devShells = eachSystem (pkgs: {
+    devShells = eachSystem ({pkgs,...}@args: {
       devShell = pkgs.mkShell {
         packages = with pkgs; [
           curl
@@ -140,13 +146,13 @@
           gotools
           graphviz
           perl
-          go_1_25
           yarn
 
           # qemu and e2fsprogs are needed for natlab
           qemu
           e2fsprogs
-        ];
+        ]
+        ++ [ args.go_1_26-native ];
       };
     });
   };
