@@ -39,7 +39,7 @@
       flake = false;
     };
     tailscale-go = {
-      url = "github:ink-splatters/tailscale-go/go1.26rc2+20260129";
+      url = "github:ink-splatters/tailscale-go/go1.26rc2+20260130";
       inputs = {
         nixpkgs.follows = "nixpkgs";
         systems.follows = "systems";
@@ -67,9 +67,9 @@
       nixpkgs.lib.genAttrs (import systems) (system:
         f rec {
             pkgs = import nixpkgs { inherit system; };
-            inherit (tailscale-go.packages.${system}) go_1_26-native;
+            inherit (tailscale-go.packages.${system}) go_1_26;
             buildGo126Module = pkgs.buildGo126Module.override {
-              go = go_1_26-native;
+              go = go_1_26;
           };
         });
     tailscaleRev = self.rev or "";
@@ -152,7 +152,7 @@
           qemu
           e2fsprogs
         ]
-        ++ [ args.go_1_26-native ];
+        ++ [ args.go_1_26 ];
       };
     });
   };
