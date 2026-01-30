@@ -55,3 +55,6 @@ client/web/build/assets
 
 # Ignore syncthing state directory.
 /.stfolder
+
+# Ignore git-hooks.nix config soft link
+/.pre-commit-config.yaml
