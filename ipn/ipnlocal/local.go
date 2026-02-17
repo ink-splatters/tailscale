@@ -6,6 +6,7 @@
 package ipnlocal
 
 import (
+	"bufio"
 	"cmp"
 	"context"
 	"crypto/sha256"
@@ -98,6 +99,7 @@ import (
 	"tailscale.com/util/syspolicy/ptype"
 	"tailscale.com/util/testenv"
 	"tailscale.com/util/usermetric"
+	"tailscale.com/util/vizerror"
 	"tailscale.com/version"
 	"tailscale.com/version/distro"
 	"tailscale.com/wgengine"
@@ -922,6 +924,22 @@ func (b *LocalBackend) setStateLocked(state ipn.State) {
 	}
 }
 
+func (b *LocalBackend) IPServiceMappings() netmap.IPServiceMappings {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.ipVIPServiceMap
+}
+
+func (b *LocalBackend) SetIPServiceMappingsForTest(m netmap.IPServiceMappings) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	testenv.AssertInTest()
+	b.ipVIPServiceMap = m
+	if ns, ok := b.sys.Netstack.GetOK(); ok {
+		ns.UpdateIPServiceMappings(m)
+	}
+}
+
 // setConfigLocked uses the provided config to update the backend's prefs
 // and other state.
 func (b *LocalBackend) setConfigLocked(conf *conffile.Config) error {
@@ -1546,22 +1564,6 @@ func (b *LocalBackend) GetFilterForTest() *filter.Filter {
 	return nb.filterAtomic.Load()
 }
 
-func (b *LocalBackend) settleEventBus() {
-	// The move to eventbus made some things racy that
-	// weren't before so we have to wait for it to all be settled
-	// before we call certain things.
-	// See https://github.com/tailscale/tailscale/issues/16369
-	// But we can't do this while holding b.mu without deadlocks,
-	// (https://github.com/tailscale/tailscale/pull/17804#issuecomment-3514426485) so
-	// now we just do it in lots of places before acquiring b.mu.
-	// Is this winning??
-	if b.sys != nil {
-		if ms, ok := b.sys.MagicSock.GetOK(); ok {
-			ms.Synchronize()
-		}
-	}
-}
-
 // SetControlClientStatus is the callback invoked by the control client whenever it posts a new status.
 // Among other things, this is where we update the netmap, packet filters, DNS and DERP maps.
 func (b *LocalBackend) SetControlClientStatus(c controlclient.Client, st controlclient.Status) {
@@ -1582,9 +1584,8 @@ func (b *LocalBackend) SetControlClientStatus(c controlclient.Client, st control
 			return
 		}
 		b.logf("Received error: %v", st.Err)
-		var uerr controlclient.UserVisibleError
-		if errors.As(st.Err, &uerr) {
-			s := uerr.UserVisibleError()
+		if vizerr, ok := vizerror.As(st.Err); ok {
+			s := vizerr.Error()
 			b.sendLocked(ipn.Notify{ErrMessage: &s})
 		}
 		return
@@ -2099,15 +2100,15 @@ func (b *LocalBackend) UpdateNetmapDelta(muts []netmap.NodeMutation) (handled bo
 		}
 	}()
 
-	// Gross. See https://github.com/tailscale/tailscale/issues/16369
-	b.settleEventBus()
-	defer b.settleEventBus()
-
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	cn := b.currentNode()
 	cn.UpdateNetmapDelta(muts)
+
+	if ms, ok := b.sys.MagicSock.GetOK(); ok {
+		ms.UpdateNetmapDelta(muts)
+	}
 
 	// If auto exit nodes are enabled and our exit node went offline,
 	// we need to schedule picking a new one.
@@ -2424,7 +2425,6 @@ func (b *LocalBackend) initOnce() {
 // actually a supported operation (it should be, but it's very unclear
 // from the following whether or not that is a safe transition).
 func (b *LocalBackend) Start(opts ipn.Options) error {
-	defer b.settleEventBus() // with b.mu unlocked
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.startLocked(opts)
@@ -2462,7 +2462,9 @@ func (b *LocalBackend) startLocked(opts ipn.Options) error {
 
 	if b.state != ipn.Running && b.conf == nil && opts.AuthKey == "" {
 		sysak, _ := b.polc.GetString(pkey.AuthKey, "")
-		if sysak != "" {
+		if sysak != "" && len(b.pm.Profiles()) > 0 && b.state != ipn.NeedsLogin {
+			logf("not setting opts.AuthKey from syspolicy; login profiles exist, state=%v", b.state)
+		} else if sysak != "" {
 			logf("setting opts.AuthKey by syspolicy, len=%v", len(sysak))
 			opts.AuthKey = strings.TrimSpace(sysak)
 		}
@@ -2918,6 +2920,9 @@ func packetFilterPermitsUnlockedNodes(peers map[tailcfg.NodeID]tailcfg.NodeView,
 func (b *LocalBackend) setFilter(f *filter.Filter) {
 	b.currentNode().setFilter(f)
 	b.e.SetFilter(f)
+	if ms, ok := b.sys.MagicSock.GetOK(); ok {
+		ms.SetFilter(f)
+	}
 }
 
 var removeFromDefaultRoute = []netip.Prefix{
@@ -4334,7 +4339,6 @@ func (b *LocalBackend) EditPrefsAs(mp *ipn.MaskedPrefs, actor ipnauth.Actor) (ip
 	if mp.SetsInternal() {
 		return ipn.PrefsView{}, errors.New("can't set Internal fields")
 	}
-	defer b.settleEventBus()
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -4499,6 +4503,12 @@ func (b *LocalBackend) onEditPrefsLocked(_ ipnauth.Actor, mp *ipn.MaskedPrefs, o
 		} else {
 			// Overrides are not allowed; clear the override flag.
 			b.overrideExitNodePolicy = false
+		}
+	}
+
+	if mp.AdvertiseServicesSet {
+		if ns, ok := b.sys.Netstack.GetOK(); ok {
+			ns.UpdateActiveVIPServices(newPrefs.AdvertiseServices())
 		}
 	}
 
@@ -5125,7 +5135,7 @@ func (b *LocalBackend) authReconfigLocked() {
 	}
 
 	oneCGNATRoute := shouldUseOneCGNATRoute(b.logf, b.sys.NetMon.Get(), b.sys.ControlKnobs(), version.OS())
-	rcfg := b.routerConfigLocked(cfg, prefs, oneCGNATRoute)
+	rcfg := b.routerConfigLocked(cfg, prefs, nm, oneCGNATRoute)
 
 	err = b.e.Reconfig(cfg, rcfg, dcfg)
 	if err == wgengine.ErrNoChanges {
@@ -5500,7 +5510,7 @@ func peerRoutes(logf logger.Logf, peers []wgcfg.Peer, cgnatThreshold int, routeA
 // routerConfig produces a router.Config from a wireguard config and IPN prefs.
 //
 // b.mu must be held.
-func (b *LocalBackend) routerConfigLocked(cfg *wgcfg.Config, prefs ipn.PrefsView, oneCGNATRoute bool) *router.Config {
+func (b *LocalBackend) routerConfigLocked(cfg *wgcfg.Config, prefs ipn.PrefsView, nm *netmap.NetworkMap, oneCGNATRoute bool) *router.Config {
 	singleRouteThreshold := 10_000
 	if oneCGNATRoute {
 		singleRouteThreshold = 1
@@ -5585,11 +5595,23 @@ func (b *LocalBackend) routerConfigLocked(cfg *wgcfg.Config, prefs ipn.PrefsView
 		}
 	}
 
+	// Get the VIPs for VIP services this node hosts. We will add all locally served VIPs to routes then
+	// we terminate these connection locally in netstack instead of routing to peer.
+	vipServiceIPs := nm.GetIPVIPServiceMap()
+	v4, v6 := false, false
+
 	if slices.ContainsFunc(rs.LocalAddrs, tsaddr.PrefixIs4) {
 		rs.Routes = append(rs.Routes, netip.PrefixFrom(tsaddr.TailscaleServiceIP(), 32))
+		v4 = true
 	}
 	if slices.ContainsFunc(rs.LocalAddrs, tsaddr.PrefixIs6) {
 		rs.Routes = append(rs.Routes, netip.PrefixFrom(tsaddr.TailscaleServiceIPv6(), 128))
+		v6 = true
+	}
+	for vip := range vipServiceIPs {
+		if (vip.Is4() && v4) || (vip.Is6() && v6) {
+			rs.Routes = append(rs.Routes, netip.PrefixFrom(vip, vip.BitLen()))
+		}
 	}
 
 	return rs
@@ -5634,6 +5656,10 @@ func (b *LocalBackend) applyPrefsToHostinfoLocked(hi *tailcfg.Hostinfo, prefs ip
 		}
 	}
 	hi.SSH_HostKeys = sshHostKeys
+
+	if buildfeatures.HasRelayServer {
+		hi.PeerRelay = prefs.RelayServerPort().Valid()
+	}
 
 	for _, f := range hookMaybeMutateHostinfoLocked {
 		f(b, hi, prefs)
@@ -6224,6 +6250,13 @@ func (b *LocalBackend) setNetMapLocked(nm *netmap.NetworkMap) {
 		login = cmp.Or(profileFromView(nm.UserProfiles[nm.User()]).LoginName, "<missing-profile>")
 	}
 	b.currentNode().SetNetMap(nm)
+	if ms, ok := b.sys.MagicSock.GetOK(); ok {
+		if nm != nil {
+			ms.SetNetworkMap(nm.SelfNode, nm.Peers)
+		} else {
+			ms.SetNetworkMap(tailcfg.NodeView{}, nil)
+		}
+	}
 	if login != b.activeLogin {
 		b.logf("active login: %v", login)
 		b.activeLogin = login
@@ -6267,7 +6300,15 @@ func (b *LocalBackend) setNetMapLocked(nm *netmap.NetworkMap) {
 
 	b.setTCPPortsInterceptedFromNetmapAndPrefsLocked(b.pm.CurrentPrefs())
 	if buildfeatures.HasServe {
-		b.ipVIPServiceMap = nm.GetIPVIPServiceMap()
+		m := nm.GetIPVIPServiceMap()
+		b.ipVIPServiceMap = m
+		if ns, ok := b.sys.Netstack.GetOK(); ok {
+			ns.UpdateIPServiceMappings(m)
+			// In case the prefs reloaded from Profile Manager but didn't change,
+			// we still need to load the active VIP services into netstack.
+			ns.UpdateActiveVIPServices(b.pm.CurrentPrefs().AdvertiseServices())
+		}
+
 	}
 
 	if !oldSelf.Equal(nm.SelfNodeOrZero()) {
@@ -7444,13 +7485,20 @@ func suggestExitNode(report *netcheck.Report, nb *nodeBackend, prevSuggestion ta
 	switch {
 	case nb.SelfHasCap(tailcfg.NodeAttrTrafficSteering):
 		// The traffic-steering feature flag is enabled on this tailnet.
-		return suggestExitNodeUsingTrafficSteering(nb, allowList)
+		res, err = suggestExitNodeUsingTrafficSteering(nb, allowList)
 	default:
 		// The control plane will always strip the `traffic-steering`
 		// node attribute if it isn’t enabled for this tailnet, even if
 		// it is set in the policy file: tailscale/corp#34401
-		return suggestExitNodeUsingDERP(report, nb, prevSuggestion, selectRegion, selectNode, allowList)
+		res, err = suggestExitNodeUsingDERP(report, nb, prevSuggestion, selectRegion, selectNode, allowList)
 	}
+	if err != nil {
+		nb.logf("netmap: suggested exit node: %v", err)
+	} else {
+		name, _, _ := strings.Cut(res.Name, ".")
+		nb.logf("netmap: suggested exit node: %s (%s)", name, res.ID)
+	}
+	return res, err
 }
 
 // suggestExitNodeUsingDERP is the classic algorithm used to suggest exit nodes,
@@ -7682,6 +7730,21 @@ func suggestExitNodeUsingTrafficSteering(nb *nodeBackend, allowed set.Set[tailcf
 		// a chance of picking the next best option.
 		pick = nodes[0]
 	}
+
+	nb.logf("netmap: traffic steering: exit node scores: %v", logger.ArgWriter(func(bw *bufio.Writer) {
+		const max = 10
+		for i, n := range nodes {
+			if i == max {
+				fmt.Fprintf(bw, "... +%d", len(nodes)-max)
+				return
+			}
+			if i > 0 {
+				bw.WriteString(", ")
+			}
+			name, _, _ := strings.Cut(n.Name(), ".")
+			fmt.Fprintf(bw, "%d:%s", score(n), name)
+		}
+	}))
 
 	if !pick.Valid() {
 		return apitype.ExitNodeSuggestionResponse{}, nil

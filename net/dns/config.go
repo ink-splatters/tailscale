@@ -21,10 +21,15 @@ import (
 	"tailscale.com/net/tsaddr"
 	"tailscale.com/types/dnstype"
 	"tailscale.com/util/dnsname"
+	"tailscale.com/util/set"
 )
 
 // Config is a DNS configuration.
 type Config struct {
+	// AcceptDNS true if [Prefs.CorpDNS] is enabled (or --accept-dns=true).
+	// This should be used for error handling and health reporting
+	// purposes only.
+	AcceptDNS bool
 	// DefaultResolvers are the DNS resolvers to use for DNS names
 	// which aren't covered by more specific per-domain routes below.
 	// If empty, the OS's default resolvers (the ones that predate
@@ -48,6 +53,11 @@ type Config struct {
 	// it to resolve, you also need to add appropriate routes to
 	// Routes.
 	Hosts map[dnsname.FQDN][]netip.Addr
+	// SubdomainHosts is a set of FQDNs from Hosts that should also
+	// resolve subdomain queries to the same IPs. For example, if
+	// "node.tailnet.ts.net" is in SubdomainHosts, then queries for
+	// "anything.node.tailnet.ts.net" will resolve to node's IPs.
+	SubdomainHosts set.Set[dnsname.FQDN]
 	// OnlyIPv6, if true, uses the IPv6 service IP (for MagicDNS)
 	// instead of the IPv4 version (100.100.100.100).
 	OnlyIPv6 bool
