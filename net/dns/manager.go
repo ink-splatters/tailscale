@@ -291,6 +291,8 @@ func (m *Manager) compileConfig(cfg Config) (rcfg resolver.Config, ocfg OSConfig
 	// authoritative suffixes, even if we don't propagate MagicDNS to
 	// the OS.
 	rcfg.Hosts = cfg.Hosts
+	rcfg.SubdomainHosts = cfg.SubdomainHosts
+	rcfg.AcceptDNS = cfg.AcceptDNS
 	routes := map[dnsname.FQDN][]*dnstype.Resolver{} // assigned conditionally to rcfg.Routes below.
 	var propagateHostsToOS bool
 	for suffix, resolvers := range cfg.Routes {
@@ -388,9 +390,9 @@ func (m *Manager) compileConfig(cfg Config) (rcfg resolver.Config, ocfg OSConfig
 		cfg, err := m.os.GetBaseConfig()
 		if err == nil {
 			baseCfg = &cfg
-		} else if isApple && err == ErrGetBaseConfigNotSupported {
-			// This is currently (2022-10-13) expected on certain iOS and macOS
-			// builds.
+		} else if (isApple || isNoopManager(m.os)) && err == ErrGetBaseConfigNotSupported {
+			// Expected when using noopManager (userspace networking) or on
+			// certain iOS/macOS builds. Continue without base config.
 		} else {
 			m.health.SetUnhealthy(osConfigurationReadWarnable, health.Args{health.ArgError: err.Error()})
 			return resolver.Config{}, OSConfig{}, err
