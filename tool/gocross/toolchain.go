@@ -44,9 +44,6 @@ findTopLevel:
 	}
 
 	revFile := "go.toolchain.rev"
-	if os.Getenv("TS_GO_NEXT") == "1" {
-		revFile = "go.toolchain.next.rev"
-	}
 	return readRevFile(filepath.Join(d, revFile))
 }
 
