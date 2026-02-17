@@ -23,14 +23,15 @@
     };
 
     tailscale-go = {
-      url = "github:ink-splatters/tailscale-go/go1.26rc2+20260130";
+      url = "github:ink-splatters/tailscale-go/go1.26+20260217";
       inputs = {
         nixpkgs.follows = "nixpkgs";
         systems.follows = "systems";
+        flake-parts.follows = "flake-parts";
       };
     };
 
-    nixpkgs.url = "github:NixOS/nixpkgs/70801e06d9730c4f1704fbd3bbf5b8e11c03a2a7";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     systems.url = "github:nix-systems/default";
   };
 

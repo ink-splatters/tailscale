@@ -36,40 +36,19 @@
         "type": "github"
       }
     },
-    "flake-parts_2": {
-      "inputs": {
-        "nixpkgs-lib": [
-          "tailscale-go",
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1768135262,
-        "narHash": "sha256-PVvu7OqHBGWN16zSi6tEmPwwHQ4rLPU9Plvs8/1TUBY=",
-        "owner": "hercules-ci",
-        "repo": "flake-parts",
-        "rev": "80daad04eddbbf5a4d883996a73f3f542fa437ac",
-        "type": "github"
-      },
-      "original": {
-        "owner": "hercules-ci",
-        "repo": "flake-parts",
-        "type": "github"
-      }
-    },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1769105483,
-        "narHash": "sha256-cC4W6KDq3942hk4zyoDWYOvb/9lvlsPZbrdlTj9hsxw=",
+        "lastModified": 1771177547,
+        "narHash": "sha256-trTtk3WTOHz7hSw89xIIvahkgoFJYQ0G43IlqprFoMA=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "70801e06d9730c4f1704fbd3bbf5b8e11c03a2a7",
+        "rev": "ac055f38c798b0d87695240c7b761b82fc7e5bc2",
         "type": "github"
       },
       "original": {
         "owner": "NixOS",
+        "ref": "nixpkgs-unstable",
         "repo": "nixpkgs",
-        "rev": "70801e06d9730c4f1704fbd3bbf5b8e11c03a2a7",
         "type": "github"
       }
     },
@@ -99,7 +78,9 @@
     },
     "tailscale-go": {
       "inputs": {
-        "flake-parts": "flake-parts_2",
+        "flake-parts": [
+          "flake-parts"
+        ],
         "nixpkgs": [
           "nixpkgs"
         ],
@@ -108,16 +89,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1769757897,
-        "narHash": "sha256-YDGboe8GhPhXi8bOEMWY1zde+DY0Xy2D0I8MYK4bBcI=",
+        "lastModified": 1771295731,
+        "narHash": "sha256-hK1rJdGdcHV3LRBbt18gFsjPyGb6k+r3CSrWLN3e9Gw=",
         "owner": "ink-splatters",
         "repo": "tailscale-go",
-        "rev": "b487227e52c24d121534afd0ec9eca6a4ea4cc6a",
+        "rev": "e74dd507fd0152237d51f5add201abda92c97ddf",
         "type": "github"
       },
       "original": {
         "owner": "ink-splatters",
-        "ref": "go1.26rc2+20260130",
+        "ref": "go1.26+20260217",
         "repo": "tailscale-go",
         "type": "github"
       }
