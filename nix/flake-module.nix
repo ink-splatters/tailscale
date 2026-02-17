@@ -13,6 +13,10 @@ in {
       go = inputs'.tailscale-go.packages.go_1_26;
     };
 
+    versionBase = lib.strings.fileContents "${src}/VERSION.txt";
+    shortVersion = versionBase;
+    longVersion = "${versionBase}-t${config.tailscaleRev}";
+
     inherit (pkgs) stdenv;
   in {
     # tailscale takes a nixpkgs package set, and builds Tailscale from
@@ -33,14 +37,19 @@ in {
     # you're an end user you should be prepared for this flake to not
     # build periodically.
     packages.tailscale = buildGo126Module {
-      name = "tailscale";
+      pname = "tailscale";
+      version = shortVersion;
       inherit src;
       vendorHash = lib.fileContents "${src}/go.mod.sri";
       nativeBuildInputs = with pkgs; [
         makeWrapper
         installShellFiles
       ];
-      ldflags = ["-X tailscale.com/version.gitCommitStamp=${config.tailscaleRev}"];
+      ldflags = [
+        "-X tailscale.com/version.shortStamp=${shortVersion}"
+        "-X tailscale.com/version.longStamp=${longVersion}"
+        "-X tailscale.com/version.gitCommitStamp=${config.tailscaleRev}"
+      ];
       env.CGO_ENABLED = 0;
       subPackages = [
         "cmd/tailscale"
