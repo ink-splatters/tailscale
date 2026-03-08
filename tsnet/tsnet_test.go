@@ -112,6 +112,86 @@ func TestListenerPort(t *testing.T) {
 	}
 }
 
+func TestResolveListenAddrUnspecified(t *testing.T) {
+	tests := []struct {
+		name    string
+		network string
+		addr    string
+		wantIP  netip.Addr
+	}{
+		{"empty_host", "tcp", ":80", netip.Addr{}},
+		{"ipv4_unspecified", "tcp", "0.0.0.0:80", netip.Addr{}},
+		{"ipv6_unspecified", "tcp", "[::]:80", netip.Addr{}},
+		{"specific_ipv4", "tcp", "100.64.0.1:80", netip.MustParseAddr("100.64.0.1")},
+		{"specific_ipv6", "tcp6", "[fd7a:115c:a1e0::1]:80", netip.MustParseAddr("fd7a:115c:a1e0::1")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolveListenAddr(tt.network, tt.addr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Addr() != tt.wantIP {
+				t.Errorf("Addr() = %v, want %v", got.Addr(), tt.wantIP)
+			}
+		})
+	}
+}
+
+func TestAllocEphemeral(t *testing.T) {
+	s := &Server{listeners: make(map[listenKey]*listener)}
+
+	// Sequential allocations should return unique ports in range.
+	var ports []uint16
+	for range 5 {
+		s.mu.Lock()
+		p, ok := s.allocEphemeralLocked("tcp", netip.Addr{}, listenOnTailnet)
+		s.mu.Unlock()
+		if !ok {
+			t.Fatal("allocEphemeralLocked failed unexpectedly")
+		}
+		if p < ephemeralPortFirst || p > ephemeralPortLast {
+			t.Errorf("port %d outside [%d, %d]", p, ephemeralPortFirst, ephemeralPortLast)
+		}
+		for _, prev := range ports {
+			if p == prev {
+				t.Errorf("duplicate port %d", p)
+			}
+		}
+		ports = append(ports, p)
+		// Occupy the port so the next call skips it.
+		s.listeners[listenKey{"tcp", netip.Addr{}, p, false}] = &listener{}
+	}
+
+	// Verify skip over occupied port.
+	s.mu.Lock()
+	next := s.nextEphemeralPort
+	if next < ephemeralPortFirst || next > ephemeralPortLast {
+		next = ephemeralPortFirst
+	}
+	s.listeners[listenKey{"tcp", netip.Addr{}, next, false}] = &listener{}
+	p, ok := s.allocEphemeralLocked("tcp", netip.Addr{}, listenOnTailnet)
+	s.mu.Unlock()
+	if !ok {
+		t.Fatal("allocEphemeralLocked failed after skip")
+	}
+	if p == next {
+		t.Errorf("should have skipped occupied port %d", next)
+	}
+
+	// Wrap-around.
+	s.mu.Lock()
+	s.nextEphemeralPort = ephemeralPortLast
+	p, ok = s.allocEphemeralLocked("tcp", netip.Addr{}, listenOnTailnet)
+	s.mu.Unlock()
+	if !ok {
+		t.Fatal("allocEphemeralLocked failed at wrap")
+	}
+	if p < ephemeralPortFirst || p > ephemeralPortLast {
+		t.Errorf("port %d outside range after wrap", p)
+	}
+}
+
 var verboseDERP = flag.Bool("verbose-derp", false, "if set, print DERP and STUN logs")
 var verboseNodes = flag.Bool("verbose-nodes", false, "if set, print tsnet.Server logs")
 
@@ -365,7 +445,7 @@ func TestConn(t *testing.T) {
 		for {
 			c, err := ln.Accept()
 			if err != nil {
-				if ctx.Err() != nil {
+				if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
 					return
 				}
 				t.Errorf("s1.Accept: %v", err)
@@ -1881,8 +1961,8 @@ type chanTUN struct {
 
 func newChanTUN() *chanTUN {
 	t := &chanTUN{
-		Inbound:  make(chan []byte, 10),
-		Outbound: make(chan []byte, 10),
+		Inbound:  make(chan []byte, 1024),
+		Outbound: make(chan []byte, 1024),
 		closed:   make(chan struct{}),
 		events:   make(chan tun.Event, 1),
 	}
@@ -1922,6 +2002,10 @@ func (t *chanTUN) Write(bufs [][]byte, offset int) (int, error) {
 		case <-t.closed:
 			return 0, errors.New("closed")
 		case t.Inbound <- slices.Clone(pkt):
+		default:
+			// Drop the packet if the channel is full, like a real
+			// TUN under congestion. This avoids blocking the
+			// WireGuard send path when no goroutine is draining.
 		}
 	}
 	return len(bufs), nil
@@ -2514,7 +2598,7 @@ func buildDNSQuery(name string, srcIP netip.Addr) []byte {
 		0x00, 0x01, // QDCOUNT: 1
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // ANCOUNT, NSCOUNT, ARCOUNT
 	}
-	for _, label := range strings.Split(name, ".") {
+	for label := range strings.SplitSeq(name, ".") {
 		dns = append(dns, byte(len(label)))
 		dns = append(dns, label...)
 	}
@@ -2791,4 +2875,233 @@ func TestResolveAuthKey(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestSelfDial verifies that a single tsnet.Server can Dial its own Listen
+// address. This is a regression test for a bug where self-addressed TCP SYN
+// packets were sent to WireGuard (which has no peer for the node's own IP)
+// and silently dropped, causing Dial to hang indefinitely.
+func TestSelfDial(t *testing.T) {
+	tstest.Shard(t)
+	tstest.ResourceCheck(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	controlURL, _ := startControl(t)
+	s1, s1ip, _ := startServer(t, ctx, controlURL, "s1")
+
+	ln, err := s1.Listen("tcp", ":8081")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	errc := make(chan error, 1)
+	connc := make(chan net.Conn, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			errc <- err
+			return
+		}
+		connc <- c
+	}()
+
+	// Self-dial: the same server dials its own Tailscale IP.
+	w, err := s1.Dial(ctx, "tcp", fmt.Sprintf("%s:8081", s1ip))
+	if err != nil {
+		t.Fatalf("self-dial failed: %v", err)
+	}
+	defer w.Close()
+
+	var accepted net.Conn
+	select {
+	case accepted = <-connc:
+	case err := <-errc:
+		t.Fatalf("accept failed: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for accept")
+	}
+	defer accepted.Close()
+
+	// Verify bidirectional data exchange.
+	want := "hello self"
+	if _, err := io.WriteString(w, want); err != nil {
+		t.Fatal(err)
+	}
+	got := make([]byte, len(want))
+	if _, err := io.ReadFull(accepted, got); err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != want {
+		t.Errorf("client->server: got %q, want %q", got, want)
+	}
+
+	reply := "hello back"
+	if _, err := io.WriteString(accepted, reply); err != nil {
+		t.Fatal(err)
+	}
+	gotReply := make([]byte, len(reply))
+	if _, err := io.ReadFull(w, gotReply); err != nil {
+		t.Fatal(err)
+	}
+	if string(gotReply) != reply {
+		t.Errorf("server->client: got %q, want %q", gotReply, reply)
+	}
+}
+
+// TestListenUnspecifiedAddr verifies that listening on 0.0.0.0 or [::] works
+// the same as listening on an empty host (":port"), accepting connections
+// destined to the node's Tailscale IPs.
+func TestListenUnspecifiedAddr(t *testing.T) {
+	testUnspec := func(t *testing.T, lt *listenTest, addr, dialPort string) {
+		ln, err := lt.s2.Listen("tcp", addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer ln.Close()
+
+		echoErr := make(chan error, 1)
+		go func() {
+			conn, err := ln.Accept()
+			if err != nil {
+				echoErr <- err
+				return
+			}
+			defer conn.Close()
+			buf := make([]byte, 1024)
+			n, err := conn.Read(buf)
+			if err != nil {
+				echoErr <- err
+				return
+			}
+			_, err = conn.Write(buf[:n])
+			echoErr <- err
+		}()
+
+		dialAddr := net.JoinHostPort(lt.s2ip4.String(), dialPort)
+		conn, err := lt.s1.Dial(t.Context(), "tcp", dialAddr)
+		if err != nil {
+			t.Fatalf("Dial(%q) failed: %v", dialAddr, err)
+		}
+		defer conn.Close()
+		want := "hello unspec"
+		if _, err := conn.Write([]byte(want)); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
+		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		got := make([]byte, 1024)
+		n, err := conn.Read(got)
+		if err != nil {
+			t.Fatalf("Read failed: %v", err)
+		}
+		if string(got[:n]) != want {
+			t.Errorf("got %q, want %q", got[:n], want)
+		}
+		if err := <-echoErr; err != nil {
+			t.Fatalf("echo error: %v", err)
+		}
+	}
+
+	t.Run("Netstack", func(t *testing.T) {
+		lt := setupTwoClientTest(t, false)
+		t.Run("0.0.0.0", func(t *testing.T) { testUnspec(t, lt, "0.0.0.0:8080", "8080") })
+		t.Run("::", func(t *testing.T) { testUnspec(t, lt, "[::]:8081", "8081") })
+	})
+	t.Run("TUN", func(t *testing.T) {
+		lt := setupTwoClientTest(t, true)
+		t.Run("0.0.0.0", func(t *testing.T) { testUnspec(t, lt, "0.0.0.0:8080", "8080") })
+		t.Run("::", func(t *testing.T) { testUnspec(t, lt, "[::]:8081", "8081") })
+	})
+}
+
+// TestListenMultipleEphemeralPorts verifies that calling Listen with port 0
+// multiple times allocates distinct ports, each of which can receive
+// connections independently.
+func TestListenMultipleEphemeralPorts(t *testing.T) {
+	testMultipleEphemeral := func(t *testing.T, lt *listenTest) {
+		const n = 3
+		listeners := make([]net.Listener, n)
+		ports := make([]string, n)
+		for i := range n {
+			ln, err := lt.s2.Listen("tcp", ":0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { ln.Close() })
+			_, portStr, err := net.SplitHostPort(ln.Addr().String())
+			if err != nil {
+				t.Fatalf("parsing Addr %q: %v", ln.Addr(), err)
+			}
+			if portStr == "0" {
+				t.Fatal("Addr() returned port 0; expected allocated port")
+			}
+			for j := range i {
+				if ports[j] == portStr {
+					t.Fatalf("listeners %d and %d both got port %s", j, i, portStr)
+				}
+			}
+			listeners[i] = ln
+			ports[i] = portStr
+		}
+
+		// Verify each listener independently accepts connections.
+		for i := range n {
+			echoErr := make(chan error, 1)
+			go func() {
+				conn, err := listeners[i].Accept()
+				if err != nil {
+					echoErr <- err
+					return
+				}
+				defer conn.Close()
+				buf := make([]byte, 1024)
+				rn, err := conn.Read(buf)
+				if err != nil {
+					echoErr <- err
+					return
+				}
+				_, err = conn.Write(buf[:rn])
+				echoErr <- err
+			}()
+
+			dialAddr := net.JoinHostPort(lt.s2ip4.String(), ports[i])
+			conn, err := lt.s1.Dial(t.Context(), "tcp", dialAddr)
+			if err != nil {
+				t.Fatalf("listener %d: Dial(%q) failed: %v", i, dialAddr, err)
+			}
+			want := fmt.Sprintf("hello port %d", i)
+			if _, err := conn.Write([]byte(want)); err != nil {
+				conn.Close()
+				t.Fatalf("listener %d: Write failed: %v", i, err)
+			}
+			conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+			got := make([]byte, 1024)
+			rn, err := conn.Read(got)
+			conn.Close()
+			if err != nil {
+				select {
+				case e := <-echoErr:
+					t.Fatalf("listener %d: echo error: %v; read error: %v", i, e, err)
+				default:
+					t.Fatalf("listener %d: Read failed: %v", i, err)
+				}
+			}
+			if string(got[:rn]) != want {
+				t.Errorf("listener %d: got %q, want %q", i, got[:rn], want)
+			}
+			if err := <-echoErr; err != nil {
+				t.Fatalf("listener %d: echo error: %v", i, err)
+			}
+		}
+	}
+
+	t.Run("Netstack", func(t *testing.T) {
+		lt := setupTwoClientTest(t, false)
+		testMultipleEphemeral(t, lt)
+	})
+	t.Run("TUN", func(t *testing.T) {
+		lt := setupTwoClientTest(t, true)
+		testMultipleEphemeral(t, lt)
+	})
 }

@@ -19,8 +19,11 @@ import (
 	"tailscale.com/tailcfg"
 	"tailscale.com/tsd"
 	"tailscale.com/tstime"
+	"tailscale.com/types/key"
 	"tailscale.com/types/logger"
 	"tailscale.com/types/mapx"
+	"tailscale.com/types/views"
+	"tailscale.com/wgengine/filter"
 )
 
 // Extension augments LocalBackend with additional functionality.
@@ -377,6 +380,63 @@ type Hooks struct {
 	// ShouldUploadServices reports whether this node should include services
 	// in Hostinfo from the portlist extension.
 	ShouldUploadServices feature.Hook[func() bool]
+
+	// Filter contains hooks for the packet filter.
+	// See [filter.Filter] for details on how these hooks are invoked.
+	Filter FilterHooks
+
+	// ExtraWireGuardAllowedIPs is called with each peer's public key
+	// from the initial [wgcfg.Config], and returns a view of prefixes to
+	// append to each peer's AllowedIPs.
+	//
+	// The extra AllowedIPs are added after the [router.Config] is generated, but
+	// before the WireGuard config is sent to the engine, so the extra IPs are
+	// given to WireGuard, but not the OS routing table.
+	//
+	// The prefixes returned from the hook should not contain duplicates, either
+	// internally, or with netmap peer prefixes. Returned prefixes should only
+	// contain host routes, and not contain default or subnet routes.
+	// Subsequent calls that return an unchanged set of prefixes for a given peer,
+	// should return the prefixes in the same order for that peer,
+	// to prevent configuration churn.
+	//
+	// The returned slice should not be mutated by the extension after it is returned.
+	//
+	// The hook is called with LocalBackend's mutex locked.
+	//
+	// TODO(#17858): This hook may not be needed and can possibly be replaced by
+	// new hooks that fit into the new architecture that make use of new
+	// WireGuard APIs.
+	ExtraWireGuardAllowedIPs feature.Hook[func(key.NodePublic) views.Slice[netip.Prefix]]
+}
+
+// FilterHooks contains hooks that extensions can use to customize the packet
+// filter. Field names match the corresponding fields in filter.Filter.
+type FilterHooks struct {
+	// IngressAllowHooks are hooks that allow extensions to accept inbound
+	// packets beyond the standard filter rules. Packets that are not dropped
+	// by the direction-agnostic pre-check, but would be not accepted by the
+	// main filter rules, including the check for destinations in the node's
+	// local IP set, will be accepted if they match one of these hooks.
+	// As of 2026-02-24, the ingress filter does not implement explicit drop
+	// rules, but if it does, an explicitly dropped packet will be dropped,
+	// and these hooks will not be evaluated.
+	//
+	// Processing of hooks stop after the first one that returns true.
+	// The returned why string of the first match is used in logging.
+	// Returning false does not drop the packet.
+	// See also [filter.Filter.IngressAllowHooks].
+	IngressAllowHooks feature.Hooks[filter.PacketMatch]
+
+	// LinkLocalAllowHooks are hooks that provide exceptions to the default
+	// policy of dropping link-local unicast packets. They run inside the
+	// direction-agnostic pre-checks for both ingress and egress.
+	//
+	// A hook can allow a link-local packet to pass the link-local check,
+	// but the packet is still subject to all other filter rules, and could be
+	// dropped elsewhere. Matching link-local packets are not logged.
+	// See also [filter.Filter.LinkLocalAllowHooks].
+	LinkLocalAllowHooks feature.Hooks[filter.PacketMatch]
 }
 
 // NodeBackend is an interface to query the current node and its peers.

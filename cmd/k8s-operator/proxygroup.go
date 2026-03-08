@@ -42,7 +42,6 @@ import (
 	"tailscale.com/tailcfg"
 	"tailscale.com/tstime"
 	"tailscale.com/types/opt"
-	"tailscale.com/types/ptr"
 	"tailscale.com/util/clientmetric"
 	"tailscale.com/util/mak"
 	"tailscale.com/util/set"
@@ -309,8 +308,7 @@ func (r *ProxyGroupReconciler) maybeProvision(ctx context.Context, tailscaleClie
 		var err error
 		svcToNodePorts, tailscaledPort, err = r.ensureNodePortServiceCreated(ctx, pg, proxyClass)
 		if err != nil {
-			var allocatePortErr *allocatePortsErr
-			if errors.As(err, &allocatePortErr) {
+			if _, ok := errors.AsType[*allocatePortsErr](err); ok {
 				reason := reasonProxyGroupCreationFailed
 				msg := fmt.Sprintf("error provisioning NodePort Services for static endpoints: %v", err)
 				r.recorder.Event(pg, corev1.EventTypeWarning, reason, msg)
@@ -322,8 +320,7 @@ func (r *ProxyGroupReconciler) maybeProvision(ctx context.Context, tailscaleClie
 
 	staticEndpoints, err := r.ensureConfigSecretsCreated(ctx, tailscaleClient, pg, proxyClass, svcToNodePorts)
 	if err != nil {
-		var selectorErr *FindStaticEndpointErr
-		if errors.As(err, &selectorErr) {
+		if _, ok := errors.AsType[*FindStaticEndpointErr](err); ok {
 			reason := reasonProxyGroupCreationFailed
 			msg := fmt.Sprintf("error provisioning config Secrets: %v", err)
 			r.recorder.Event(pg, corev1.EventTypeWarning, reason, msg)
@@ -624,7 +621,7 @@ func (r *ProxyGroupReconciler) ensureNodePortServiceCreated(ctx context.Context,
 		}
 	}
 
-	return svcToNodePorts, ptr.To(tailscaledPort), nil
+	return svcToNodePorts, new(tailscaledPort), nil
 }
 
 // cleanupDanglingResources ensures we don't leak config secrets, state secrets, and
@@ -719,8 +716,7 @@ func (r *ProxyGroupReconciler) maybeCleanup(ctx context.Context, tailscaleClient
 func (r *ProxyGroupReconciler) deleteTailnetDevice(ctx context.Context, tailscaleClient tsClient, id tailcfg.StableNodeID, logger *zap.SugaredLogger) error {
 	logger.Debugf("deleting device %s from control", string(id))
 	if err := tailscaleClient.DeleteDevice(ctx, string(id)); err != nil {
-		errResp := &tailscale.ErrResponse{}
-		if ok := errors.As(err, errResp); ok && errResp.Status == http.StatusNotFound {
+		if errResp, ok := errors.AsType[tailscale.ErrResponse](err); ok && errResp.Status == http.StatusNotFound {
 			logger.Debugf("device %s not found, likely because it has already been deleted from control", string(id))
 		} else {
 			return fmt.Errorf("error deleting device: %w", err)
@@ -837,9 +833,9 @@ func (r *ProxyGroupReconciler) ensureConfigSecretsCreated(
 				Version: "v1alpha1",
 				ConfigV1Alpha1: &conf.ConfigV1Alpha1{
 					AuthKey:  authKey,
-					State:    ptr.To(fmt.Sprintf("kube:%s", pgPodName(pg.Name, i))),
-					App:      ptr.To(kubetypes.AppProxyGroupKubeAPIServer),
-					LogLevel: ptr.To(logger.Level().String()),
+					State:    new(fmt.Sprintf("kube:%s", pgPodName(pg.Name, i))),
+					App:      new(kubetypes.AppProxyGroupKubeAPIServer),
+					LogLevel: new(logger.Level().String()),
 
 					// Reloadable fields.
 					Hostname: &hostname,
@@ -850,7 +846,7 @@ func (r *ProxyGroupReconciler) ensureConfigSecretsCreated(
 						// as containerboot does for ingress-pg-reconciler.
 						IssueCerts: opt.NewBool(i == 0),
 					},
-					LocalPort:          ptr.To(uint16(9002)),
+					LocalPort:          new(uint16(9002)),
 					HealthCheckEnabled: opt.NewBool(true),
 				},
 			}
@@ -1021,7 +1017,7 @@ func getStaticEndpointAddress(a *corev1.NodeAddress, port uint16) *netip.AddrPor
 		return nil
 	}
 
-	return ptr.To(netip.AddrPortFrom(addr, port))
+	return new(netip.AddrPortFrom(addr, port))
 }
 
 // ensureAddedToGaugeForProxyGroup ensures the gauge metric for the ProxyGroup resource is updated when the ProxyGroup
@@ -1062,7 +1058,7 @@ func pgTailscaledConfig(pg *tsapi.ProxyGroup, pc *tsapi.ProxyClass, idx int32, a
 		AcceptDNS:         "false",
 		AcceptRoutes:      "false", // AcceptRoutes defaults to true
 		Locked:            "false",
-		Hostname:          ptr.To(pgHostname(pg, idx)),
+		Hostname:          new(pgHostname(pg, idx)),
 		AdvertiseServices: oldAdvertiseServices,
 		AuthKey:           authKey,
 	}

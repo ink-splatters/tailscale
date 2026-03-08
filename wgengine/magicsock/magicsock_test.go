@@ -63,7 +63,6 @@ import (
 	"tailscale.com/types/netlogtype"
 	"tailscale.com/types/netmap"
 	"tailscale.com/types/nettype"
-	"tailscale.com/types/ptr"
 	"tailscale.com/types/views"
 	"tailscale.com/util/cibuild"
 	"tailscale.com/util/clientmetric"
@@ -528,6 +527,57 @@ func TestPickDERPFallback(t *testing.T) {
 	// TODO: test that disco-based clients changing to a new DERP
 	// region causes this fallback to also move, once disco clients
 	// have fixed DERP fallback logic.
+}
+
+// TestDERPActiveFuncCalledAfterConnect verifies that DERPActiveFunc is not
+// called until the DERP connection is actually established (i.e. after
+// startGate / derpStarted is closed).
+func TestDERPActiveFuncCalledAfterConnect(t *testing.T) {
+	derpMap, cleanup := runDERPAndStun(t, t.Logf, localhostListener{}, netaddr.IPv4(127, 0, 0, 1))
+	defer cleanup()
+
+	bus := eventbustest.NewBus(t)
+
+	netMon, err := netmon.New(bus, t.Logf)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resultCh := make(chan bool, 1)
+	var conn *Conn
+
+	conn, err = NewConn(Options{
+		Logf:                   t.Logf,
+		NetMon:                 netMon,
+		EventBus:               bus,
+		HealthTracker:          health.NewTracker(bus),
+		Metrics:                new(usermetric.Registry),
+		DisablePortMapper:      true,
+		TestOnlyPacketListener: localhostListener{},
+		EndpointsFunc:          func([]tailcfg.Endpoint) {},
+		DERPActiveFunc: func() {
+			// derpStarted should already be closed when DERPActiveFunc is called.
+			select {
+			case <-conn.derpStarted:
+				resultCh <- true
+			default:
+				resultCh <- false
+			}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	conn.SetDERPMap(derpMap)
+	if err := conn.SetPrivateKey(key.NewNode()); err != nil {
+		t.Fatal(err)
+	}
+
+	if ok := <-resultCh; !ok {
+		t.Error("DERPActiveFunc was called before DERP connection was established")
+	}
 }
 
 // TestDeviceStartStop exercises the startup and shutdown logic of
@@ -1957,7 +2007,7 @@ func TestStressSetNetworkMap(t *testing.T) {
 
 	const iters = 1000 // approx 0.5s on an m1 mac
 	for range iters {
-		for j := 0; j < npeers; j++ {
+		for j := range npeers {
 			// Randomize which peers are present.
 			if prng.Int()&1 == 0 {
 				present[j] = !present[j]
@@ -2146,7 +2196,7 @@ func newWireguard(t *testing.T, uapi string, aips []netip.Prefix) (*device.Devic
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		line = strings.TrimSpace(line)
 		if len(line) == 0 {
 			continue
@@ -2258,7 +2308,7 @@ func TestIsWireGuardOnlyPeerWithMasquerade(t *testing.T) {
 				IsWireGuardOnly:               true,
 				Addresses:                     []netip.Prefix{wgaip},
 				AllowedIPs:                    []netip.Prefix{wgaip},
-				SelfNodeV4MasqAddrForThisPeer: ptr.To(masqip.Addr()),
+				SelfNodeV4MasqAddrForThisPeer: new(masqip.Addr()),
 			},
 		}),
 	}
@@ -4261,7 +4311,7 @@ func TestRotateDiscoKeyMultipleTimes(t *testing.T) {
 	keys := make([]key.DiscoPublic, 0, 5)
 	keys = append(keys, c.discoAtomic.Public())
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		c.RotateDiscoKey()
 		newKey := c.discoAtomic.Public()
 

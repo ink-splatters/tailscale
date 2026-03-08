@@ -57,7 +57,6 @@
         flakeModules.default
         flake-parts.flakeModules.partitions
       ];
-
       inherit systems;
 
       partitionedAttrs = {

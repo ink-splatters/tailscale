@@ -1474,8 +1474,7 @@ func (c *Conn) sendUDPBatch(addr epAddr, buffs [][]byte, offset int) (sent bool,
 		err = c.pconn4.WriteWireGuardBatchTo(buffs, addr, offset)
 	}
 	if err != nil {
-		var errGSO neterror.ErrUDPGSODisabled
-		if errors.As(err, &errGSO) {
+		if errGSO, ok := errors.AsType[neterror.ErrUDPGSODisabled](err); ok {
 			c.logf("magicsock: %s", errGSO.Error())
 			err = errGSO.RetryErr
 		} else {
@@ -3080,8 +3079,18 @@ func (c *Conn) updateNodes(self tailcfg.NodeView, peers []tailcfg.NodeView) (pee
 			// we don't get this far. If ok was false above, that means it's a key
 			// that differs from the one the NodeID had. But double check.
 			if ep.nodeID != n.ID() {
-				// Server error.
-				devPanicf("public key moved between nodeIDs (old=%v new=%v, key=%s)", ep.nodeID, n.ID(), n.Key().String())
+				// Server error. This is known to be a particular issue for Mullvad
+				// nodes (http://go/corp/27300), so log a distinct error for the
+				// Mullvad and non-Mullvad cases. The error will be logged either way,
+				// so an approximate heuristic is fine.
+				//
+				// When #27300 is fixed, we can delete this branch and log the same
+				// panic for any public key moving.
+				if strings.HasSuffix(n.Name(), ".mullvad.ts.net.") {
+					devPanicf("public key moved between Mullvad nodeIDs (old=%v new=%v, key=%s); see http://go/corp/27300", ep.nodeID, n.ID(), n.Key().String())
+				} else {
+					devPanicf("public key moved between nodeIDs (old=%v new=%v, key=%s)", ep.nodeID, n.ID(), n.Key().String())
+				}
 			} else {
 				// Internal data structures out of sync.
 				devPanicf("public key found in peerMap but not by nodeID")
@@ -4256,6 +4265,7 @@ func (c *Conn) HandleDiscoKeyAdvertisement(node tailcfg.NodeView, update packet.
 	// If the key did not change, count it and return.
 	if oldDiscoKey.Compare(discoKey) == 0 {
 		metricTSMPDiscoKeyAdvertisementUnchanged.Add(1)
+		c.logf("magicsock: disco key did not change for node %v", nodeKey.ShortString())
 		return
 	}
 	c.discoInfoForKnownPeerLocked(discoKey)
@@ -4299,6 +4309,10 @@ type NewDiscoKeyAvailable struct {
 //
 // We do not need the Conn to be locked, but the endpoint should be.
 func (c *Conn) maybeSendTSMPDiscoAdvert(de *endpoint) {
+	if !buildfeatures.HasCacheNetMap || !envknob.Bool("TS_USE_CACHED_NETMAP") {
+		return
+	}
+
 	de.mu.Lock()
 	defer de.mu.Unlock()
 	if !de.sentDiscoKeyAdvertisement {

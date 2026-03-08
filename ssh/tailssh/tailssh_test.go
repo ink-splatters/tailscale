@@ -51,7 +51,6 @@ import (
 	"tailscale.com/types/key"
 	"tailscale.com/types/logid"
 	"tailscale.com/types/netmap"
-	"tailscale.com/types/ptr"
 	"tailscale.com/util/cibuild"
 	"tailscale.com/util/lineiter"
 	"tailscale.com/util/must"
@@ -96,7 +95,7 @@ func TestMatchRule(t *testing.T) {
 			name: "expired",
 			rule: &tailcfg.SSHRule{
 				Action:      someAction,
-				RuleExpires: ptr.To(time.Unix(100, 0)),
+				RuleExpires: new(time.Unix(100, 0)),
 			},
 			ci:      &sshConnInfo{},
 			wantErr: errRuleExpired,
@@ -572,9 +571,7 @@ func TestSSHRecordingCancelsSessionsOnUploadFailure(t *testing.T) {
 			tstest.Replace(t, &handler, tt.handler)
 			sc, dc := memnet.NewTCPConn(src, dst, 1024)
 			var wg sync.WaitGroup
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				c, chans, reqs, err := testssh.NewClientConn(sc, sc.RemoteAddr().String(), cfg)
 				if err != nil {
 					t.Errorf("client: %v", err)
@@ -604,7 +601,7 @@ func TestSSHRecordingCancelsSessionsOnUploadFailure(t *testing.T) {
 						t.Errorf("client output must not contain %q", x)
 					}
 				}
-			}()
+			})
 			if err := s.HandleSSHConn(dc); err != nil {
 				t.Errorf("unexpected error: %v", err)
 			}
@@ -667,9 +664,7 @@ func TestMultipleRecorders(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		c, chans, reqs, err := testssh.NewClientConn(sc, sc.RemoteAddr().String(), cfg)
 		if err != nil {
 			t.Errorf("client: %v", err)
@@ -691,7 +686,7 @@ func TestMultipleRecorders(t *testing.T) {
 		if string(out) != "Ran echo!\n" {
 			t.Errorf("client: unexpected output: %q", out)
 		}
-	}()
+	})
 	if err := s.HandleSSHConn(dc); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -758,9 +753,7 @@ func TestSSHRecordingNonInteractive(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		c, chans, reqs, err := testssh.NewClientConn(sc, sc.RemoteAddr().String(), cfg)
 		if err != nil {
 			t.Errorf("client: %v", err)
@@ -779,7 +772,7 @@ func TestSSHRecordingNonInteractive(t *testing.T) {
 		if err != nil {
 			t.Errorf("client: %v", err)
 		}
-	}()
+	})
 	if err := s.HandleSSHConn(dc); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -989,9 +982,7 @@ func TestSSHAuthFlow(t *testing.T) {
 				}
 
 				var wg sync.WaitGroup
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
+				wg.Go(func() {
 					c, chans, reqs, err := testssh.NewClientConn(sc, sc.RemoteAddr().String(), cfg)
 					if err != nil {
 						if !tc.authErr {
@@ -1015,7 +1006,7 @@ func TestSSHAuthFlow(t *testing.T) {
 					if err != nil {
 						t.Errorf("client: %v", err)
 					}
-				}()
+				})
 				if err := s.HandleSSHConn(dc); err != nil {
 					t.Errorf("unexpected error: %v", err)
 				}
@@ -1229,8 +1220,8 @@ func TestSSH(t *testing.T) {
 func parseEnv(out []byte) map[string]string {
 	e := map[string]string{}
 	for line := range lineiter.Bytes(out) {
-		if i := bytes.IndexByte(line, '='); i != -1 {
-			e[string(line[:i])] = string(line[i+1:])
+		if before, after, ok := bytes.Cut(line, []byte{'='}); ok {
+			e[string(before)] = string(after)
 		}
 	}
 	return e
