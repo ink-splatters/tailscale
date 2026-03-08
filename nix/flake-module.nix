@@ -66,14 +66,7 @@ in {
       postInstall =
         optionalString stdenv.isLinux ''
           wrapProgram $out/bin/tailscaled --prefix PATH : ${
-            makeBinPath (
-              with pkgs; [
-                iproute2
-                iptables
-                getent
-                shadow
-              ]
-            )
+            makeBinPath (with pkgs; [iproute2 iptables getent shadow])
           }
           wrapProgram $out/bin/tailscale --suffix PATH : ${makeBinPath [pkgs.procps]}
 
