@@ -4,7 +4,7 @@
 #
 # gocross-wrapper.sh is a wrapper that can be aliased to 'go', which
 # transparently runs the version of github.com/tailscale/go as specified repo's
-# go.toolchain.rev file (or go.toolchain.next.rev if TS_GO_NEXT=1).
+# go.toolchain.rev file
 #
 # It also conditionally (if TS_USE_GOCROSS=1) builds gocross and uses it as a go
 # wrapper to inject certain go flags.
@@ -21,11 +21,7 @@ if [[ "${OSTYPE:-}" == "cygwin" || "${OSTYPE:-}" == "msys" ]]; then
     exit
 fi
 
-if [[ "${TS_GO_NEXT:-}" == "1" ]]; then
-    go_toolchain_rev_file="go.toolchain.next.rev"
-else
-    go_toolchain_rev_file="go.toolchain.rev"
-fi
+go_toolchain_rev_file="go.toolchain.rev"
 
 # Locate a bootstrap toolchain and (re)build gocross if necessary. We run all of
 # this in a subshell because posix shell semantics make it very easy to
