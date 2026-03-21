@@ -190,15 +190,10 @@ unsafe fn main_impl() -> ! {
         };
     };
 
-    // Read the toolchain revision hash from go.toolchain.rev (or
-    // go.toolchain.next.rev if TS_GO_NEXT=1).
+    // Read the toolchain revision hash from go.toolchain.rev.
     let mut rev_path = WBuf::<4096>::new();
     rev_path.push_wbuf(&repo_root);
-    if env_eq(b"TS_GO_NEXT", b"1") {
-        rev_path.push_ascii(b"\\go.toolchain.next.rev");
-    } else {
-        rev_path.push_ascii(b"\\go.toolchain.rev");
-    }
+    rev_path.push_ascii(b"\\go.toolchain.rev");
 
     let mut rev_buf = [0u8; 256];
     let rev = read_file_trimmed(&mut rev_path, &mut rev_buf);
