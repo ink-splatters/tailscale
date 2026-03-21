@@ -14,7 +14,7 @@ import (
 func TestToolchainMatches(t *testing.T) {
 	tsRev, ok := tailscaleToolchainRev()
 	if !ok {
-		t.Fatal("failed to read build info")
+		t.Skip("skipping; tailscale.toolchain.rev not present in build info")
 	}
 	want := strings.TrimSpace(GoToolchainRev)
 	if tsRev != want {
