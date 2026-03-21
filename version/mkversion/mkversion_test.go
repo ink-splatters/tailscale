@@ -129,3 +129,23 @@ func TestMkversion(t *testing.T) {
 		}
 	}
 }
+
+func TestParseVersionFileFormat(t *testing.T) {
+	tests := []struct {
+		in                  string
+		major, minor, patch int
+	}{
+		{"1.99.0-dev+cust\ntime 2026-05-18T11:11:59Z\n", 1, 99, 0},
+		{"1.98.2+cust\ntime 2026-05-18T11:11:59Z\n", 1, 98, 2},
+		{"1.2.3", 1, 2, 3},
+	}
+	for _, tt := range tests {
+		major, minor, patch, err := parseVersion(tt.in)
+		if err != nil {
+			t.Fatalf("parseVersion(%q): %v", tt.in, err)
+		}
+		if major != tt.major || minor != tt.minor || patch != tt.patch {
+			t.Fatalf("parseVersion(%q) = %d.%d.%d, want %d.%d.%d", tt.in, major, minor, patch, tt.major, tt.minor, tt.patch)
+		}
+	}
+}
