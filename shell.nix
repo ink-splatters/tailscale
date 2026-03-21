@@ -8,12 +8,14 @@
 # automatically get your environment set up when you change folders into the
 # project.
 (import (
-  let
-    lock = builtins.fromJSON (builtins.readFile ./flake.lock);
-  in fetchTarball {
-    url = "https://github.com/edolstra/flake-compat/archive/${lock.nodes.flake-compat.locked.rev}.tar.gz";
-    sha256 = lock.nodes.flake-compat.locked.narHash; }
-) {
-  src =  ./.;
-}).shellNix
-# nix-direnv cache busting line: sha256-rRjz9+V33DVblvNtQGEllK0NF82FgVkOtoIT47e5Nd0=
+    let
+      lock = builtins.fromJSON (builtins.readFile ./flake.lock);
+    in
+      fetchTarball {
+        url = "https://github.com/edolstra/flake-compat/archive/${lock.nodes.flake-compat.locked.rev}.tar.gz";
+        sha256 = lock.nodes.flake-compat.locked.narHash;
+      }
+  ) {
+    src = ./.;
+  }).shellNix
+
