@@ -3,7 +3,7 @@
   description = "Dev dependencies inputs flake";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/f8573b9c935cfaa162dd62cc9e75ae2db86f85df";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     git-hooks = {
       url = "github:cachix/git-hooks.nix";
       inputs.nixpkgs.follows = "nixpkgs";
