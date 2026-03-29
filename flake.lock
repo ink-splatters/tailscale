@@ -89,16 +89,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1774098974,
-        "narHash": "sha256-Wr1GNqMIvWS5sWsRitFGvqExZ298MuS9QulpBVCLZ8Y=",
+        "lastModified": 1774809590,
+        "narHash": "sha256-Rld/bSMQ5Zz9eb2d/iN6V3xK4AUQkQ+w20lrHqjfogY=",
         "owner": "ink-splatters",
         "repo": "tailscale-go",
-        "rev": "e5277435d4e6454c1da47e73b88293b740f0f29d",
+        "rev": "68bffe396ed32e37de2660081b9ab9d6a0a0403b",
         "type": "github"
       },
       "original": {
         "owner": "ink-splatters",
-        "ref": "go1.26.1+tailscale.20260321T130617Z",
+        "ref": "go1.26.1+tailscale.20260329T183934Z",
         "repo": "tailscale-go",
         "type": "github"
       }
