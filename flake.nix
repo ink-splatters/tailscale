@@ -23,7 +23,7 @@
     };
 
     tailscale-go = {
-      url = "github:ink-splatters/tailscale-go/go1.26.1+tailscale.20260321T130617Z";
+      url = "github:ink-splatters/tailscale-go/go1.26.2+tailscale.20260407T125051Z";
       inputs = {
         nixpkgs.follows = "nixpkgs";
         systems.follows = "systems";
