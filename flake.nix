@@ -24,11 +24,11 @@
 
     tailscale-go = {
       url = "github:ink-splatters/tailscale-go/go1.26.2+tailscale.20260407T125051Z";
-      inputs = {
-        nixpkgs.follows = "nixpkgs";
-        systems.follows = "systems";
-        flake-parts.follows = "flake-parts";
-      };
+      # inputs = {
+      #   nixpkgs.follows = "nixpkgs";
+      #   systems.follows = "systems";
+      #   flake-parts.follows = "flake-parts";
+      # };
     };
 
     nixpkgs.url = "github:NixOS/nixpkgs/f8573b9c935cfaa162dd62cc9e75ae2db86f85df";
