@@ -1,5 +1,31 @@
-{lib, ...}: let
-  inherit (lib) makeBinPath optionalString;
+{
+  lib,
+  self,
+  ...
+}: let
+  inherit (builtins) filter fromJSON readFile replaceStrings substring;
+  inherit
+    (lib)
+    concatStringsSep
+    fileContents
+    findFirst
+    hasInfix
+    hasPrefix
+    makeBinPath
+    optional
+    optionalString
+    removePrefix
+    removeSuffix
+    splitString
+    ;
+
+  flakeHashes = fromJSON (readFile ../flakehashes.json);
+  gitRev = self.rev or self.dirtyRev or (throw "tailscale git revision is unavailable; build from a Git flake source");
+  fullRev = removeSuffix "-dirty" gitRev;
+  shortRev =
+    removeSuffix "-dirty"
+    (self.shortRev or self.dirtyShortRev or (substring 0 7 fullRev));
+  dirty = (self.dirtyRev or null) != null || (self.dirtyShortRev or null) != null;
 in {
   perSystem = {
     config,
@@ -9,13 +35,27 @@ in {
   }: let
     inherit (config) src;
 
+    appendSemverBuild = version: idents: let
+      present = filter (ident: ident != "") idents;
+    in
+      if present == []
+      then version
+      else "${version}${
+        if hasInfix "+" version
+        then "."
+        else "+"
+      }${concatStringsSep "." present}";
+
     buildGo126Module = pkgs.buildGo126Module.override {
       go = inputs'.tailscale-go.packages.go_1_26;
     };
 
-    versionBase = lib.strings.fileContents "${src}/VERSION.txt";
-    shortVersion = versionBase;
-    longVersion = "${versionBase}-t${config.tailscaleRev}";
+    versionLines = splitString "\n" (fileContents "${src}/VERSION.txt");
+    versionBase = builtins.head versionLines;
+    versionTime = removePrefix "time " (findFirst (hasPrefix "time ") "" versionLines);
+    versionTimestamp = replaceStrings ["-" ":"] ["" ""] versionTime;
+    shortVersion = appendSemverBuild versionBase [versionTimestamp];
+    longVersion = appendSemverBuild shortVersion (["t${shortRev}"] ++ optional dirty "dirty");
 
     inherit (pkgs) stdenv;
   in {
@@ -40,7 +80,7 @@ in {
       pname = "tailscale";
       version = shortVersion;
       inherit src;
-      vendorHash = config.flakeHashes.vendor.sri;
+      vendorHash = flakeHashes.vendor.sri;
       nativeBuildInputs = with pkgs; [
         makeWrapper
         installShellFiles
@@ -48,7 +88,7 @@ in {
       ldflags = [
         "-X tailscale.com/version.shortStamp=${shortVersion}"
         "-X tailscale.com/version.longStamp=${longVersion}"
-        "-X tailscale.com/version.gitCommitStamp=${config.tailscaleRev}"
+        "-X tailscale.com/version.gitCommitStamp=${fullRev}"
       ];
       env.CGO_ENABLED = 0;
       subPackages = [
