@@ -65,6 +65,7 @@ type parsed struct {
 }
 
 func parse(version string) (parsed, bool) {
+	version, _, _ = strings.Cut(version, "+")
 	if strings.HasPrefix(version, "date.") {
 		stamp, ok := atoi(version[5:])
 		if !ok {

@@ -32,6 +32,34 @@ func TestIsValidLongWithTwoRepos(t *testing.T) {
 	}
 }
 
+func TestParseVersionDotTxt(t *testing.T) {
+	got := parseVersionDotTxt("1.99.0-dev+cust\ntime 2026-05-18T11:11:59Z\n")
+	if got.base != "1.99.0-dev+cust" {
+		t.Errorf("base = %q, want %q", got.base, "1.99.0-dev+cust")
+	}
+	if got.compactTime != "20260518T111159Z" {
+		t.Errorf("compactTime = %q, want %q", got.compactTime, "20260518T111159Z")
+	}
+}
+
+func TestAppendSemverBuild(t *testing.T) {
+	tests := []struct {
+		version string
+		ids     []string
+		want    string
+	}{
+		{"1.99.0-dev+cust", []string{"20260518T111159Z"}, "1.99.0-dev+cust.20260518T111159Z"},
+		{"1.98.2+cust", []string{"20260518T111159Z"}, "1.98.2+cust.20260518T111159Z"},
+		{"1.99.0-dev", []string{"20260518T111159Z"}, "1.99.0-dev+20260518T111159Z"},
+		{"1.99.0-dev+cust.20260518T111159Z", []string{"t8644d6e"}, "1.99.0-dev+cust.20260518T111159Z.t8644d6e"},
+	}
+	for _, tt := range tests {
+		if got := appendSemverBuild(tt.version, tt.ids...); got != tt.want {
+			t.Errorf("appendSemverBuild(%q, %q) = %q, want %q", tt.version, tt.ids, got, tt.want)
+		}
+	}
+}
+
 func TestTailscaleToolchainRev(t *testing.T) {
 	out, err := exec.Command("go", "env", "GOROOT").Output()
 	if err != nil {
