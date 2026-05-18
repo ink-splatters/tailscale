@@ -44,13 +44,8 @@
     ];
   };
 
-  outputs = inputs @ {
-    self,
-    flake-parts,
-    ...
-  }:
+  outputs = inputs @ {flake-parts, ...}:
     flake-parts.lib.mkFlake {inherit inputs;} (let
-      flakeHashes = builtins.fromJSON (builtins.readFile ./flakehashes.json);
       systems = import inputs.systems;
       flakeModules.default = import ./nix/flake-module.nix;
     in {
@@ -85,13 +80,6 @@
               path = ./.;
               name = "tailscale";
             };
-          };
-          tailscaleRev = lib.mkOption {
-            type = lib.types.str;
-            default = builtins.toString (self.shortRev or self.dirtyShortRev or self.lastModified or "unknown");
-          };
-          flakeHashes = lib.mkOption {
-            default = flakeHashes;
           };
         };
         config.packages.default = config.packages.tailscale;

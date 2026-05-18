@@ -5,11 +5,11 @@
 package version
 
 import (
-	"fmt"
 	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	tailscaleroot "tailscale.com"
 	"tailscale.com/types/lazy"
@@ -67,9 +67,11 @@ var long lazy.SyncValue[string]
 //     builds by Tailscale (these are not distributed).
 //   - "x.y.z-changecount-commithash" for untagged release branch builds
 //     built with build_dist.sh
-//   - "x.y.z-devYYYYMMDD-commithash{,-dirty}" for builds made with plain "go
-//     build" or "go install"
-//   - "x.y.z-ERR-BuildInfo" for builds made by plain "go run"
+//   - a VERSION.txt semver plus build metadata for builds stamped with
+//     VERSION.txt metadata.
+//   - "x.y.z-devYYYYMMDD+tcommithash{.dirty}" for builds made with plain "go
+//     build" or "go install" when VERSION.txt is an undecorated base version.
+//   - "x.y.z+ERR-BuildInfo" for builds made by plain "go run"
 func Long() string {
 	return long.Get(func() string {
 		if longStamp != "" {
@@ -77,9 +79,13 @@ func Long() string {
 		}
 		bi := getEmbeddedInfo()
 		if !bi.valid {
-			return strings.TrimSpace(tailscaleroot.VersionDotTxt) + "-ERR-BuildInfo"
+			return appendSemverBuild(versionBase(), "ERR-BuildInfo")
 		}
-		return fmt.Sprintf("%s-dev%s-t%s%s", strings.TrimSpace(tailscaleroot.VersionDotTxt), bi.commitDate, bi.commitAbbrev(), dirtyString())
+		dirty := ""
+		if gitDirty() {
+			dirty = "dirty"
+		}
+		return appendSemverBuild(Short(), "t"+bi.commitAbbrev(), dirty)
 	})
 }
 
@@ -88,19 +94,103 @@ var short lazy.SyncValue[string]
 // Short returns a short version number for this build, of the forms:
 //
 //   - "x.y.z" for builds distributed by Tailscale or built with build_dist.sh
+//   - a VERSION.txt semver plus build metadata for builds stamped with
+//     VERSION.txt metadata.
 //   - "x.y.z-devYYYYMMDD" for builds made with plain "go build" or "go install"
-//   - "x.y.z-ERR-BuildInfo" for builds made by plain "go run"
+//     when VERSION.txt is an undecorated base version.
+//   - "x.y.z+ERR-BuildInfo" for builds made by plain "go run"
 func Short() string {
 	return short.Get(func() string {
 		if shortStamp != "" {
 			return shortStamp
 		}
+		base := versionBase()
+		if metadata := versionTimeMetadata(); metadata != "" {
+			return appendSemverBuild(base, metadata)
+		}
 		bi := getEmbeddedInfo()
 		if !bi.valid {
-			return strings.TrimSpace(tailscaleroot.VersionDotTxt) + "-ERR-BuildInfo"
+			return appendSemverBuild(base, "ERR-BuildInfo")
 		}
-		return strings.TrimSpace(tailscaleroot.VersionDotTxt) + "-dev" + bi.commitDate
+		if strings.ContainsAny(base, "-+") {
+			return base
+		}
+		return base + "-dev" + bi.commitDate
 	})
+}
+
+type versionFileInfo struct {
+	base        string
+	compactTime string
+}
+
+var parsedVersionFile = sync.OnceValue(func() versionFileInfo {
+	return parseVersionDotTxt(tailscaleroot.VersionDotTxt)
+})
+
+func parseVersionDotTxt(s string) versionFileInfo {
+	var ret versionFileInfo
+	for i, line := range strings.Split(strings.TrimRight(s, "\r\n"), "\n") {
+		line = strings.TrimSpace(line)
+		if i == 0 {
+			ret.base = line
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		if fields[0] == "time" && len(fields) == 2 {
+			t, err := time.Parse(time.RFC3339, fields[1])
+			if err == nil {
+				ret.compactTime = t.UTC().Format("20060102T150405Z")
+			}
+		}
+	}
+	if ret.base == "" {
+		ret.base = strings.TrimSpace(s)
+	}
+	return ret
+}
+
+func versionBase() string {
+	return parsedVersionFile().base
+}
+
+func versionTimeMetadata() string {
+	if t := parsedVersionFile().compactTime; t != "" {
+		return t
+	}
+	return ""
+}
+
+func appendSemverBuild(v string, ids ...string) string {
+	ids = nonEmpty(ids)
+	if len(ids) == 0 {
+		return v
+	}
+	sep := "+"
+	if strings.Contains(v, "+") {
+		sep = "."
+	}
+	return v + sep + strings.Join(ids, ".")
+}
+
+func nonEmpty(ss []string) []string {
+	out := ss[:0]
+	for _, s := range ss {
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func semverCore(v string) string {
+	if i := strings.IndexAny(v, "-+"); i >= 0 {
+		return v[:i]
+	}
+	return v
 }
 
 type embeddedInfo struct {
@@ -185,8 +275,7 @@ func dirtyString() string {
 }
 
 func majorMinorPatch() string {
-	ret, _, _ := strings.Cut(Short(), "-")
-	return ret
+	return semverCore(Short())
 }
 
 // IsTailscaleGo reports whether the current binary was built with
