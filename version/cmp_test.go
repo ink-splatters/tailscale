@@ -29,6 +29,9 @@ func TestParse(t *testing.T) {
 		{"1.2.3-4a-test", parsed{Major: 1, Minor: 2, Patch: 3}, true},
 		{"1.2-extra", parsed{Major: 1, Minor: 2}, true},
 		{"1.2.3-extra", parsed{Major: 1, Minor: 2, Patch: 3}, true},
+		{"1.2.3+build", parsed{Major: 1, Minor: 2, Patch: 3}, true},
+		{"1.2.3-dev+cust.20260518T111159Z", parsed{Major: 1, Minor: 2, Patch: 3}, true},
+		{"1.98.2+cust.20260518T111159Z", parsed{Major: 1, Minor: 98, Patch: 2}, true},
 		{"date.20200612", parsed{Datestamp: 20200612}, true},
 		{"borkbork", parsed{}, false},
 		{"1a.2.3", parsed{}, false},
@@ -74,6 +77,8 @@ func TestAtLeast(t *testing.T) {
 		{"date.20200701", "date.20200612", true},
 		{"date.20200501", "date.20200612", false},
 		{"1.96.2_1 (Void Linux)", "1.42", true},
+		{"1.98.2+cust.20260518T111159Z", "1.98.2", true},
+		{"1.99.0-dev+cust.20260518T111159Z", "1.98.2", true},
 	}
 
 	for _, test := range tests {
