@@ -455,7 +455,8 @@ func infoFromDir(dir string) (verInfo, error) {
 }
 
 func parseVersion(s string) (major, minor, patch int, err error) {
-	fs := strings.Split(strings.TrimSpace(s), ".")
+	s = versionCore(s)
+	fs := strings.Split(s, ".")
 	if len(fs) != 3 {
 		err = fmt.Errorf("parseVersion: parsing %q: wrong number of parts: %d", s, len(fs))
 		return
@@ -471,6 +472,13 @@ func parseVersion(s string) (major, minor, patch int, err error) {
 		ints = append(ints, i)
 	}
 	return ints[0], ints[1], ints[2], nil
+}
+
+func versionCore(s string) string {
+	s, _, _ = strings.Cut(strings.TrimSpace(s), "\n")
+	s, _, _ = strings.Cut(s, "+")
+	s, _, _ = strings.Cut(s, "-")
+	return s
 }
 
 func shortHash(hash string) string {

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-version_file="${1:-VERSION}"
+version_file="${1:-VERSION.txt}"
 timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
 if [[ ! -f "${version_file}" ]]; then
